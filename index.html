@@ -1,0 +1,186 @@
+<!doctype html>
+<html>
+
+<head>
+	<title>Line Chart</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+<link type="text/css" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid.min.css" />
+<link type="text/css" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid-theme.min.css" />
+ 
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.18.1/moment.min.js"></script>
+	<script src="https://www.chartjs.org/dist/2.7.3/Chart.js"></script>
+	<script src="https://www.chartjs.org/samples/latest/utils.js"></script>
+	<style>
+		canvas {
+			-moz-user-select: none;
+			-webkit-user-select: none;
+			-ms-user-select: none;
+		}
+	</style>
+</head>
+
+<body>
+	<div style="width:1000px">
+		<canvas id="chart1"></canvas>
+	</div>
+	<br>
+	<br>
+	Chart Type:
+	<select id="type">
+		<option value="line">Line</option>
+		<option value="bar">Bar</option>
+	</select>
+	<button id="update">update</button>
+   
+   <div id="jsGrid"></div>
+
+	<script>
+    
+        var movements = localStorage.movementString ? JSON.parse(localStorage.movementString) : [] ; 
+ 		var dateFormat = 'MMMM DD YYYY';
+        var date = moment().startOf('day');
+		var data = [];
+		var labels = [];
+        var startingBalance = 100;
+        
+        renderDataAndLabels(startingBalance);
+        var chart = new Chart(chartContext(), chartConfig(data,labels));        
+		document.getElementById('update').addEventListener('click', function() {
+			var type = document.getElementById('type').value;
+			chart.config.data.datasets[0].type = type;
+			chart.update();
+		});
+        
+     var timePeriod = [
+        { Name: "Weekly", Id: 0 },
+        { Name: "Monthly", Id: 1 },
+        { Name: "Daily", Id: 2 }
+        ];    
+ 
+    $("#jsGrid").jsGrid({
+          width: "100%",
+ 
+        inserting: true,
+        editing: true,
+        sorting: true,
+        paging: true,
+ 
+        data: movements,
+        
+        fields: [
+            { name: "Description", type: "text", width: 200, validate: "required" },
+            { name: "Time Period", witdth: 100 , type: "select", items: timePeriod, valueField: "Id", textField: "Name" },
+            { name: "Due Day", type: "number", width: 50 },
+            { name: "Amount", type: "number", width: 50 },
+            { type: "control" }
+        ],
+         onItemInserted:renderAndRepaint,
+         onItemUpdated:renderAndRepaint,
+         onItemDeleted:renderAndRepaint
+    });
+           
+           function renderAndRepaint(args){
+             localStorage.movementString=JSON.stringify(movements);
+             renderDataAndLabels(startingBalance);
+             chart.config.data.datasets[0].data = data;
+             chart.config.data.labels = labels;
+             chart.update();
+           }
+            
+        function calculateBar(date , previousBalance) {
+            var balance = getMonthlyAmountForDate(date,previousBalance);
+			return {
+				t: date.valueOf(),
+				y: balance
+			};
+		}
+
+        function getMonthlyAmountForDate(date , previousBalance) { 
+            var result = previousBalance ; 
+            var dayOfMonth = date.format('D')
+            var weekDay = date.isoWeekday();
+            for(var i = 0; i < movements.length; i++){
+                var movement = movements[i]["Amount"];
+                if(movements[i]["Time Period"] == 2){
+                    console.log(movement);
+                    result+=movement;
+                }else if ( movements[i]["Due Day"]==weekDay && movements[i]["Time Period"] == 0 ) {
+                    result+= movement;
+                } else if ( movements[i]["Due Day"]==dayOfMonth && movements[i]["Time Period"] == 1 ) {
+                    result+= movement;
+                }
+     		}
+           return result;
+        }
+
+        function renderDataAndLabels(startingBalance){
+         date = moment().startOf('day');
+		 data = [];
+		 labels = [];
+		   do {
+            plotPoint(data,labels,calculateBar(date , data.length==0?startingBalance:data[data.length-1].y));
+            date = date.clone().add(1, 'd');
+		   } while (data.length < 60) ;
+        }
+
+        function plotPoint(data,labels,point){
+          data.push(point)
+          var dateLabel = date.format("MMMM DD YYYY")
+		  labels.push(dateLabel);
+        }
+        
+        function chartContext(){
+		   var ctx = document.getElementById('chart1').getContext('2d');
+		   ctx.canvas.width = 1000;
+		   ctx.canvas.height = 300;
+           return ctx;
+        }
+        
+        function chartConfig(data , labels){
+      		var color = Chart.helpers.color;
+	    	var cfg = {
+			type: 'bar',
+			data: {
+				labels: labels,
+				datasets: [{
+					label: 'Cashflow Planner',
+					backgroundColor: color(window.chartColors.red).alpha(0.5).rgbString(),
+					borderColor: window.chartColors.red,
+					data: data,
+					type: 'line',
+					pointRadius: 0,
+					fill: false,
+					lineTension: 0,
+					borderWidth: 2
+				}]
+			},
+			options: {
+				scales: {
+					xAxes: [{
+						type: 'time',
+                        time : {
+                         unit: 'day'
+                        },
+						distribution: 'series',
+						ticks: {
+							source: 'labels'
+						}
+					}],
+					yAxes: [{
+						scaleLabel: {
+							display: true,
+							labelString: 'Balance (€)'
+						}
+					}]
+				}
+			}
+		};
+        return cfg;
+        }
+
+	</script>
+</body>
+
+</html>
+
