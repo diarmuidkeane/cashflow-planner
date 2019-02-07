@@ -26,6 +26,7 @@
 	</div>
 	<br>
 	<br>
+    Starting Balance <input type="number" id="starting-balance"/>
 	Chart Type:
 	<select id="type">
 		<option value="line">Line</option>
@@ -36,14 +37,14 @@
    <div id="jsGrid"></div>
 
 	<script>
-    
+
         var movements = localStorage.movementString ? JSON.parse(localStorage.movementString) : [] ; 
  		var dateFormat = 'MMMM DD YYYY';
         var date = moment().startOf('day');
 		var data = [];
 		var labels = [];
-        var startingBalance = 100;
-        
+        var startingBalance = 340; // document.getElementById('starting-balance').value;
+
         renderDataAndLabels(startingBalance);
         var chart = new Chart(chartContext(), chartConfig(data,labels));        
 		document.getElementById('update').addEventListener('click', function() {
@@ -53,10 +54,11 @@
 		});
         
      var timePeriod = [
+         {Name: "Once-Off", Id: -1},
         { Name: "Weekly", Id: 0 },
         { Name: "Monthly", Id: 1 },
         { Name: "Daily", Id: 2 }
-        ];    
+     ];
  
     $("#jsGrid").jsGrid({
           width: "100%",
@@ -79,57 +81,68 @@
          onItemUpdated:renderAndRepaint,
          onItemDeleted:renderAndRepaint
     });
-           
-           function renderAndRepaint(args){
+
+        function bindStartingBalance() {
+            var x = document.getElementById('starting-balance').value;
+            console.log(x);
+            startingBalance = x;
+            console.log(startingBalance);
+            // renderAndRepaint();
+        }
+
+        function renderAndRepaint(args) {
              localStorage.movementString=JSON.stringify(movements);
              renderDataAndLabels(startingBalance);
              chart.config.data.datasets[0].data = data;
              chart.config.data.labels = labels;
              chart.update();
            }
-            
-        function calculateBar(date , previousBalance) {
-            var balance = getMonthlyAmountForDate(date,previousBalance);
-			return {
-				t: date.valueOf(),
-				y: balance
-			};
-		}
-
-        function getMonthlyAmountForDate(date , previousBalance) { 
-            var result = previousBalance ; 
-            var dayOfMonth = date.format('D')
-            var weekDay = date.isoWeekday();
-            for(var i = 0; i < movements.length; i++){
-                var movement = movements[i]["Amount"];
-                if(movements[i]["Time Period"] == 2){
-                    console.log(movement);
-                    result+=movement;
-                }else if ( movements[i]["Due Day"]==weekDay && movements[i]["Time Period"] == 0 ) {
-                    result+= movement;
-                } else if ( movements[i]["Due Day"]==dayOfMonth && movements[i]["Time Period"] == 1 ) {
-                    result+= movement;
-                }
-     		}
-           return result;
-        }
 
         function renderDataAndLabels(startingBalance){
-         date = moment().startOf('day');
-		 data = [];
-		 labels = [];
-		   do {
-            plotPoint(data,labels,calculateBar(date , data.length==0?startingBalance:data[data.length-1].y));
+            date = moment().startOf('day');
+            var initialDataPoint = {t: date.clone().add(-1, 'd').valueOf(), y: startingBalance};
+		    data = [];
+		    labels = [];
+		    do {
+               plotPoint(data, labels, calculateNextDataPoint(date, data.length == 0 ? startingBalance : data[data.length - 1].y));
             date = date.clone().add(1, 'd');
-		   } while (data.length < 60) ;
+		    } while (data.length < 60) ;
+
+            function plotPoint(data,labels,point){
+              data.push(point)
+              var dateLabel = date.format(dateFormat)
+              labels.push(dateLabel);
+            }
+
+            function calculateNextDataPoint(date, previousBalance) {
+                var balance = resolveAmountForDate(date, previousBalance);
+                return {
+                    t: date,
+                    y: balance
+                };
+
+                function resolveAmountForDate(date, previousBalance) {
+                    var result = previousBalance ;
+                    var dayOfMonth = date.format('D')
+                    var weekDay = date.isoWeekday();
+                    var theDaytoday = date.format('YYYYMMDD')
+                    for(var i = 0; i < movements.length; i++){
+                        var movement = movements[i]["Amount"];
+                        if(movements[i]["Time Period"] == 2){
+                            result+=movement;
+                        }else if ( movements[i]["Due Day"]==weekDay && movements[i]["Time Period"] == 0 ) {
+                            result+= movement;
+                        } else if ( movements[i]["Due Day"]==dayOfMonth && movements[i]["Time Period"] == 1 ) {
+                            result+= movement;
+                        } else if (movements[i]["Due Day"] == theDaytoday && movements[i]["Time Period"] == -1) {
+                            result += movement;
+                        }
+                    }
+                    return result;
+                }
+            }
         }
 
-        function plotPoint(data,labels,point){
-          data.push(point)
-          var dateLabel = date.format("MMMM DD YYYY")
-		  labels.push(dateLabel);
-        }
-        
         function chartContext(){
 		   var ctx = document.getElementById('chart1').getContext('2d');
 		   ctx.canvas.width = 1000;
