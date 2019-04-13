@@ -4,15 +4,57 @@
 <head>
     <title>Line Chart</title>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
-    <link type="text/css" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid.min.css"/>
-    <link type="text/css" rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid-theme.min.css"/>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid.min.css" rel="stylesheet" type="text/css"/>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid-theme.min.css" rel="stylesheet"
+          type="text/css"/>
 
-    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid.min.js" type="text/javascript"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.18.1/moment.min.js"></script>
     <script src="https://www.chartjs.org/dist/2.7.3/Chart.js"></script>
     <script src="https://www.chartjs.org/samples/latest/utils.js"></script>
+    <meta content="width=device-width, initial-scale=1" name="viewport">
     <style>
+        body {
+            font-family: Arial;
+        }
+
+        /* Style the tab */
+        .tab {
+            overflow: hidden;
+            border: 1px solid #ccc;
+            background-color: #f1f1f1;
+        }
+
+        /* Style the buttons inside the tab */
+        .tab button {
+            background-color: inherit;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            font-size: 17px;
+        }
+
+        /* Change background color of buttons on hover */
+        .tab button:hover {
+            background-color: #ddd;
+        }
+
+        /* Create an active/current tablink class */
+        .tab button.active {
+            background-color: #ccc;
+        }
+
+        /* Style the tab content */
+        .tabcontent {
+            display: none;
+            padding: 6px 12px;
+            border: 1px solid #ccc;
+            border-top: none;
+        }
+
         canvas {
             -moz-user-select: none;
             -webkit-user-select: none;
@@ -22,68 +64,155 @@
 </head>
 
 <body>
-<div style="width:1000px">
+<div style="width:1600px">
     <canvas id="chart1"></canvas>
 </div>
 <br>
 <br>
-Starting Balance <input type="number" id="starting-balance" onblur="renderAndRepaint()"/>
-Chart Type:
+<label for="starting-balance">Starting Balance</label><input id="starting-balance" onblur="renderAndRepaint()" type="number"/>
+<label for="type">Chart Type:</label>
 <select id="type">
     <option value="line">Line</option>
     <option value="bar">Bar</option>
 </select>
 <button id="update">update</button>
 
-<div id="jsGrid"></div>
+
+<div class="tab">
+    <button class="tablinks" onclick="openTab(event, 'planningGrid')">CashFlow Plan</button>
+    <button class="tablinks" onclick="openTab(event, 'calendarGrid')">CashFlow Calendar</button>
+</div>
+
+<div class="tabcontent" id="calendarGrid">
+    <h3>Calendar Grid</h3>
+    <p>This will be the calendar grid</p>
+</div>
+
+<div class="tabcontent" id="planningGrid"></div>
 
 <script>
 
-    var movements = localStorage.movementString ? JSON.parse(localStorage.movementString) : [];
-    var dateFormat = 'MMMM DD YYYY';
-    var date = moment().startOf('day');
-    var data = [];
-    var labels = [];
+    const dateFormat = 'MMMM DD YYYY';
+    let schedule = localStorage.movementString ? JSON.parse(localStorage.movementString) : [];
+    let movementWindow = [];
+    let date = moment().startOf('day');
+    let data = [];
+    let labels = [];
 
     renderDataAndLabels();
-    var chart = new Chart(chartContext(), chartConfig(data, labels));
+    const chart = new Chart(chartContext(), chartConfig(data, labels));
     document.getElementById('update').addEventListener('click', function () {
         var type = document.getElementById('type').value;
         chart.config.data.datasets[0].type = type;
         chart.update();
     });
 
-    var timePeriod = [
+    const timePeriod = [
         {Name: "Once-Off", Id: -1},
         {Name: "Weekly", Id: 0},
         {Name: "Monthly", Id: 1},
         {Name: "Daily", Id: 2}
     ];
+    $("#planningGrid").jsGrid({
 
-    $("#jsGrid").jsGrid({
-        width: "100%",
+        width: "75%",
 
         inserting: true,
         editing: true,
         sorting: true,
         paging: true,
 
-        data: movements,
+        data: schedule,
 
         fields: [
             {name: "Description", type: "text", width: 200, validate: "required"},
-            {name: "Time Period", witdth: 100, type: "select", items: timePeriod, valueField: "Id", textField: "Name"},
+            {name: "Time Period", width: 100, type: "select", items: timePeriod, valueField: "Id", textField: "Name"},
             {name: "Due Day", type: "number", width: 50},
             {name: "Amount", type: "number", width: 50},
             {type: "control"}
         ],
         onItemInserted: renderAndRepaint,
         onItemUpdated: renderAndRepaint,
-        onItemDeleted: renderAndRepaint
+        onItemDeleted: renderAndRepaint,
+        sorter: function sortAlgo(event1, event2) {
+            /**
+             * rank:
+             * first : staleOnceOff : Time Period == -1 && Due Date < today
+             * second : dailys : Time Period == 2
+             * third : monthlys : Time Period == 0,1 && today < Due Date <= today + month
+             * last : futureOnceOff : Time Period == -1 && Due Date > today + month
+             *
+             *
+             *
+             *  today 7
+             */
+            function rank(event) {
+                var dayOfMonth = date.format('D');
+                var weekDay = date.isoWeekday();
+                var theDaytoday = date.format('YYYYMMDD');
+
+                if (event["Time Period"] == -1 && event["Due Date"] < theDaytoday) { // stale onceoffs
+                    return 0; // order by theDaytoday
+                } else if (event["Time Period"] == 2) { //dailys
+                    return 1; //order by alpha
+                } else if (event["Time Period"] == 0) { // weekly
+                    return 2;  // order by modulo shifted weekDay
+                } else if (event["Time Period"] == 1) { // monthly
+                    return 2;  // order by modulo shifted dayOfMonth
+                } else if (event["Time Period"] == -1 && event["Due Date"] >= theDaytoday + 31) {
+                    return 3;  // order by theDaytoday-1
+                } else
+                    return 2;
+            }
+
+            if (rank(event1) < rank(event2)) {
+                return 1;
+            } else if (rank(event1) > rank(event2)) {
+                return -1;
+            } else {
+                return event1["Due Date"] < event2["Due Date"] ? 1 :
+                    event1["Due Date"] > event2["Due Date"] ? -1 : 0;
+                // return event1["Description"].length < event2["Description"].length ? 1 :
+                //     event1["Description"].length > event2["Description"].length ? -1 :0;
+            }
+        }
     });
 
+    $("#calendarGrid").jsGrid({
+        width: "75%",
+
+        inserting: false,
+        editing: false,
+        sorting: true,
+        paging: true,
+
+        data: movementWindow,
+
+        fields: [
+            {name: "Date", type: "number", width: 100},
+            {name: "Movement", width: 200, type: "text"},
+            {name: "Amount", type: "number", width: 50}
+        ]
+    });
+
+    openTab(event, 'planningGrid');
+
+
+    // *
+    //     Time;
+    //     Period == 2
+    //     * third;
+    // :
+    //     Time;
+    //     Period == 0, 1 && today < Due;
+    //     Date <= today + month
+    //     * last;
+    // :
+    //     Time;
+    //     Period == -1 && Due;
+    //     Date > today + month
     function renderAndRepaint() {
-        localStorage.movementString = JSON.stringify(movements);
+        localStorage.movementString = JSON.stringify(schedule);
         renderDataAndLabels();
         chart.config.data.datasets[0].data = data;
         chart.config.data.labels = labels;
@@ -91,44 +220,42 @@ Chart Type:
     }
 
     function renderDataAndLabels() {
-        var openingBalance = Number(document.getElementById('starting-balance').value);
+        const openingBalance = Number(document.getElementById('starting-balance').value);
         date = moment().startOf('day');
-        var initialDataPoint = {t: date.clone().add(-1, 'd').valueOf(), y: openingBalance};
+        // var initialDataPoint = {t: date.clone().add(-1, 'd').valueOf(), y: openingBalance};
         data = [];
         labels = [];
         do {
             plotPoint(data, labels, calculateNextDataPoint(date, data.length == 0 ? openingBalance : data[data.length - 1].y));
             date = date.clone().add(1, 'd');
-        } while (data.length < 60) ;
+        } while (data.length < 90) ;
 
         function plotPoint(data, labels, point) {
-            data.push(point)
-            var dateLabel = date.format(dateFormat)
+            data.push(point);
+            const dateLabel = date.format(dateFormat);
             labels.push(dateLabel);
         }
 
         function calculateNextDataPoint(date, previousBalance) {
-            var balance = resolveAmountForDate(date, previousBalance);
+            let balance = resolveAmountForDate(date, previousBalance);
             return {
                 t: date,
                 y: balance
             };
 
             function resolveAmountForDate(date, previousBalance) {
-                var result = previousBalance;
-                var dayOfMonth = date.format('D')
-                var weekDay = date.isoWeekday();
-                var theDaytoday = date.format('YYYYMMDD')
-                for (var i = 0; i < movements.length; i++) {
-                    var movement = movements[i]["Amount"];
-                    if (movements[i]["Time Period"] == 2) {
-                        result += movement;
-                    } else if (movements[i]["Due Day"] == weekDay && movements[i]["Time Period"] == 0) {
-                        result += movement;
-                    } else if (movements[i]["Due Day"] == dayOfMonth && movements[i]["Time Period"] == 1) {
-                        result += movement;
-                    } else if (movements[i]["Due Day"] == theDaytoday && movements[i]["Time Period"] == -1) {
-                        result += movement;
+                let result = previousBalance;
+                let dayOfMonth = date.format('D');
+                let weekDay = date.isoWeekday();
+                let theDaytoday = date.format('YYYYMMDD');
+                for (let i = 0; i < schedule.length; i++) {
+                    let event = schedule[i]["Amount"];
+                    if (schedule[i]["Time Period"] == 2
+                        || schedule[i]["Due Day"] == weekDay && schedule[i]["Time Period"] == 0
+                        || schedule[i]["Due Day"] == dayOfMonth && schedule[i]["Time Period"] == 1
+                        || schedule[i]["Due Day"] == theDaytoday && schedule[i]["Time Period"] == -1) {
+                        result += event;
+                        movementWindow.push({"Date":theDaytoday,"Movement":schedule[i]["Description"],"Amount":schedule[i]["Amount"]});
                     }
                 }
                 return result;
@@ -138,8 +265,8 @@ Chart Type:
 
     function chartContext() {
         var ctx = document.getElementById('chart1').getContext('2d');
-        ctx.canvas.width = 1000;
-        ctx.canvas.height = 300;
+        ctx.canvas.width = 1800;
+        ctx.canvas.height = 400;
         return ctx;
     }
 
@@ -154,7 +281,7 @@ Chart Type:
                     backgroundColor: color(window.chartColors.red).alpha(0.5).rgbString(),
                     borderColor: window.chartColors.red,
                     data: data,
-                    type: 'line',
+                    type: 'bar',
                     pointRadius: 0,
                     fill: false,
                     lineTension: 0,
@@ -185,8 +312,20 @@ Chart Type:
         return cfg;
     }
 
+    function openTab(evt, tabName) {
+        var i, tabcontent, tablinks;
+        tabcontent = document.getElementsByClassName("tabcontent");
+        for (i = 0; i < tabcontent.length; i++) {
+            tabcontent[i].style.display = "none";
+        }
+        tablinks = document.getElementsByClassName("tablinks");
+        for (i = 0; i < tablinks.length; i++) {
+            tablinks[i].className = tablinks[i].className.replace(" active", "");
+        }
+        document.getElementById(tabName).style.display = "block";
+        //evt.currentTarget.className += " active";
+    }
+
 </script>
 </body>
-
-</html>
 
