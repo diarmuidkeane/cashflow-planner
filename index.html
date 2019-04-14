@@ -93,6 +93,9 @@
 <script>
 
     const dateFormat = 'MMMM DD YYYY';
+    const dateWindow = 90;
+    let openingBalance = localStorage.openingBalance ? Number(localStorage.openingBalance) : 0;
+    document.getElementById('starting-balance').value=openingBalance.toString();
     let schedule = localStorage.movementString ? JSON.parse(localStorage.movementString) : [];
     let movementWindow = [];
     let date = moment().startOf('day');
@@ -179,7 +182,7 @@
     });
 
     $("#calendarGrid").jsGrid({
-        width: "75%",
+        width: "50%",
 
         inserting: false,
         editing: false,
@@ -189,7 +192,7 @@
         data: movementWindow,
 
         fields: [
-            {name: "Date", type: "number", width: 100},
+            {name: "Date", type: "number", width: 25},
             {name: "Movement", width: 200, type: "text"},
             {name: "Amount", type: "number", width: 50}
         ]
@@ -220,15 +223,16 @@
     }
 
     function renderDataAndLabels() {
-        const openingBalance = Number(document.getElementById('starting-balance').value);
+        openingBalance = Number(document.getElementById('starting-balance').value);
+        localStorage.openingBalance = openingBalance.toString();
         date = moment().startOf('day');
-        // var initialDataPoint = {t: date.clone().add(-1, 'd').valueOf(), y: openingBalance};
         data = [];
         labels = [];
         do {
             plotPoint(data, labels, calculateNextDataPoint(date, data.length == 0 ? openingBalance : data[data.length - 1].y));
+            // date = date.clone().add(1, 'd');
             date = date.clone().add(1, 'd');
-        } while (data.length < 90) ;
+        } while (data.length < dateWindow) ;
 
         function plotPoint(data, labels, point) {
             data.push(point);
