@@ -11,6 +11,7 @@ One page HTML App for planning cashflows
 ##### cashflow calendar 
 
 ##### random data factory
+    demo string version 
 
 ##### auth
     login widget 
@@ -19,6 +20,11 @@ One page HTML App for planning cashflows
 ##### persisted data 
     write to file
     or kv store
+    authz and persistence 
     
 ##### flag deferral
+
+opening balance bank cu savings
+opening balance dated 
+
  

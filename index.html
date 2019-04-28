@@ -69,7 +69,7 @@
 </div>
 <br>
 <br>
-<label for="starting-balance">Starting Balance</label><input id="starting-balance" onblur="renderAndRepaint()" type="number"/>
+<label for="starting-balance">Starting Balance</label><input id="starting-balance" onblur="app.plannerGrid.renderAndRepaint()" type="number"/>
 <label for="type">Chart Type:</label>
 <select id="type">
     <option value="line">Line</option>
@@ -77,198 +77,212 @@
 </select>
 <button id="update">update</button>
 
-
 <div class="tab">
-    <button class="tablinks" onclick="openTab(event, 'planningGrid')">CashFlow Plan</button>
-    <button class="tablinks" onclick="openTab(event, 'calendarGrid')">CashFlow Calendar</button>
+    <button class="tablinks" onclick="TabManager.openTab('planningGrid')">CashFlow Plan</button>
+    <button class="tablinks" onclick="TabManager.openTab('calendarGrid')">CashFlow Calendar</button>
 </div>
 
-<div class="tabcontent" id="calendarGrid">
-    <h3>Calendar Grid</h3>
-    <p>This will be the calendar grid</p>
-</div>
-
+<div class="tabcontent" id="calendarGrid"></div>
 <div class="tabcontent" id="planningGrid"></div>
 
 <script>
-    const OpeningBalance = {
-        retrieveAndDisplay : function(){
-            let openingBalance = localStorage.openingBalance ? Number(localStorage.openingBalance) : 0;
-            document.getElementById('starting-balance').value=openingBalance.toString();
-            return openingBalance;
-        },
-        getAndPersist : function (){
-            let openingBalance = Number(document.getElementById('starting-balance').value);
-            localStorage.openingBalance = openingBalance.toString();
-            return openingBalance;
-        }
-    };
-
-    const dateFormat = 'MMMM DD YYYY';
-    const dateWindow = 90;
-    let movementWindow = [];
-    let data = [];
-    let labels = [];
-
-    let openingBalance = OpeningBalance.retrieveAndDisplay();
-    let schedule = localStorage.movementString ? JSON.parse(localStorage.movementString) : [];
-
-    renderDataAndLabels(openingBalance);
-    const chart = new Chart(chartContext(), chartConfig(data, labels));
-    document.getElementById('update').addEventListener('click', function () {
-        var type = document.getElementById('type').value;
-        chart.config.data.datasets[0].type = type;
-        chart.update();
-    });
-
-    const timePeriod = [
-        {Name: "Once-Off", Id: -1},
-        {Name: "Weekly", Id: 0},
-        {Name: "Monthly", Id: 1},
-        {Name: "Daily", Id: 2},
-        {Name: "Yearly", Id: 3}
-    ];
-    $("#planningGrid").jsGrid({
-
-        width: "75%",
-
-        inserting: true,
-        editing: true,
-        sorting: true,
-        paging: true,
-
-        data: schedule,
-
-        fields: [
-            {name: "Description", type: "text", width: 200, validate: "required"},
-            {name: "Time Period", width: 100, type: "select", items: timePeriod, valueField: "Id", textField: "Name"},
-            {name: "Due Day", type: "number", width: 50},
-            {name: "Amount", type: "number", width: 50},
-            {type: "control"}
-        ],
-        onItemInserted: renderAndRepaint,
-        onItemUpdated: renderAndRepaint,
-        onItemDeleted: renderAndRepaint,
-        sorter: function sortAlgo(event1, event2) {
-            /**
-             * rank:
-             * first : staleOnceOff : Time Period == -1 && Due Date < today
-             * second : dailys : Time Period == 2
-             * third : monthlys : Time Period == 0,1 && today < Due Date <= today + month
-             * last : futureOnceOff : Time Period == -1 && Due Date > today + month
-             *
-             *
-             *
-             *  today 7
-             */
-            function rank(event) {
-                var dayOfMonth = date.format('D');
-                var weekDay = date.isoWeekday();
-                var theDaytoday = date.format('YYYYMMDD');
-
-                if (event["Time Period"] == -1 && event["Due Date"] < theDaytoday) { // stale onceoffs
-                    return 0; // order by theDaytoday
-                } else if (event["Time Period"] == 2) { //dailys
-                    return 1; //order by alpha
-                } else if (event["Time Period"] == 0) { // weekly
-                    return 2;  // order by modulo shifted weekDay
-                } else if (event["Time Period"] == 1) { // monthly
-                    return 2;  // order by modulo shifted dayOfMonth
-                } else if (event["Time Period"] == -1 && event["Due Date"] >= theDaytoday + 31) {
-                    return 3;  // order by theDaytoday-1
-                } else
-                    return 2;
+    class CashFlowChartProvider {
+        chart;
+        chartElement;
+        constructor(data, labels,dimensions) {
+            function chartContext(chartElement,dimensions) {
+                const ctx = chartElement.getContext('2d');
+                ctx.canvas.width = dimensions.width;
+                ctx.canvas.height = dimensions.height;
+                return ctx;
             }
 
-            if (rank(event1) < rank(event2)) {
-                return 1;
-            } else if (rank(event1) > rank(event2)) {
-                return -1;
-            } else {
-                return event1["Due Date"] < event2["Due Date"] ? 1 :
-                    event1["Due Date"] > event2["Due Date"] ? -1 : 0;
-                // return event1["Description"].length < event2["Description"].length ? 1 :
-                //     event1["Description"].length > event2["Description"].length ? -1 :0;
+            function chartConfig(data, labels) {
+                const color = Chart.helpers.color;
+                const cfg = {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Cashflow Planner',
+                            backgroundColor: color(window.chartColors.red).alpha(0.5).rgbString(),
+                            borderColor: window.chartColors.red,
+                            data: data,
+                            type: 'bar',
+                            pointRadius: 0,
+                            fill: false,
+                            lineTension: 0,
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            xAxes: [{
+                                type: 'time',
+                                time: {
+                                    unit: 'day'
+                                },
+                                distribution: 'series',
+                                ticks: {
+                                    source: 'labels'
+                                }
+                            }],
+                            yAxes: [{
+                                scaleLabel: {
+                                    display: true,
+                                    labelString: 'Balance (€)'
+                                }
+                            }]
+                        }
+                    }
+                };
+                return cfg;
             }
+            this.chartElement = document.getElementById('chart1');
+            const chart = new Chart(chartContext(this.chartElement,dimensions), chartConfig(data, labels));
+            document.getElementById('update').addEventListener('click', function () {
+                const type = document.getElementById('type').value;
+                chart.config.data.datasets[0].type = type;
+                chart.update();
+            });
+            this.chart = chart;
         }
-    });
 
-    $("#calendarGrid").jsGrid({
-        width: "40%",
-
-        inserting: false,
-        editing: false,
-        sorting: true,
-        paging: true,
-        autoload: true,
-
-        data: movementWindow,
-
-        fields: [
-            {name: "Date", type: "number", width: 30},
-            {name: "Movement", width: 150, type: "text"},
-            {name: "Amount", type: "number", width: 50},
-            {name: "Balance", type: "number", width: 50},
-            {name: "Reschedule", type: "number", width: 30},
-            {name: "Paid", type: "checkbox", width: 30}
-        ]
-    });
-
-    openTab(event, 'planningGrid');
-
-
-
-    // *
-    //     Time;
-    //     Period == 2
-    //     * third;
-    // :
-    //     Time;
-    //     Period == 0, 1 && today < Due;
-    //     Date <= today + month
-    //     * last;
-    // :
-    //     Time;
-    //     Period == -1 && Due;
-    //     Date > today + month
-    function renderAndRepaint() {
-        // persist schedule data
-        localStorage.movementString = JSON.stringify(schedule);
-        let openingBalance = OpeningBalance.getAndPersist();
-        // generate data
-        let dataSet = renderDataAndLabels(openingBalance);
-        // draw chart
-        chart.config.data.datasets[0].data = dataSet.chartData;
-        chart.config.data.labels = dataSet.chartLabels;
-        chart.update();
-        // update calendar
-        $("#calendarGrid").jsGrid("option","data",dataSet.calendarData);
+        refresh(dataSet) {
+            this.chart.config.data.datasets[0].data = dataSet.chartData;
+            this.chart.config.data.labels = dataSet.chartLabels;
+            this.chart.update();
+        }
     }
 
-    function renderDataAndLabels(openingBalance) {
-        let date = moment().startOf('day');
-        data = [];
-        labels = [];
-        movementWindow = [];
-        do {
-            plotPoint(data, labels, resolveAmountForDate(date, data.length === 0 ? openingBalance : data[data.length - 1].y));
-            date = date.clone().add(1, 'd');
-        } while (data.length < dateWindow) ;
+    class PlanningGridProvider {
+        planningGrid;
+        schedule;
 
-        function plotPoint(data, labels, point) {
-            data.push(point);
-            const dateLabel = date.format(dateFormat);
-            labels.push(dateLabel);
+        constructor(planningGrid,planningGridWidth) {
+            this.planningGrid = planningGrid;
+            this.schedule = this.load();
+            const timePeriod = [
+                {Name: "Once-Off", Id: -1},
+                {Name: "Weekly", Id: 0},
+                {Name: "Monthly", Id: 1},
+                {Name: "Daily", Id: 2},
+                {Name: "Yearly", Id: 3}
+            ];
+            this.planningGrid.jsGrid({
+                width: planningGridWidth,
+
+                inserting: true,
+                editing: true,
+                sorting: true,
+                paging: true,
+
+                data: this.schedule,
+
+                fields: [
+                    {name: "Description", type: "text", width: 200, validate: "required"},
+                    {name: "Time Period", width: 100, type: "select", items: timePeriod, valueField: "Id", textField: "Name"},
+                    {name: "Due Day", type: "number", width: 50},
+                    {name: "Amount", type: "number", width: 50},
+                    {type: "control"}
+                ],
+                onItemInserted: this.renderAndRepaint,
+                onItemUpdated: this.renderAndRepaint,
+                onItemDeleted: this.renderAndRepaint,
+                sorter: function sortAlgo(event1, event2) {
+                    /**
+                     * rank:
+                     * first : staleOnceOff : Time Period == -1 && Due Date < today
+                     * second : dailys : Time Period == 2
+                     * third : monthlys : Time Period == 0,1 && today < Due Date <= today + month
+                     * last : futureOnceOff : Time Period == -1 && Due Date > today + month
+                     *
+                     *
+                     *
+                     *  today 7
+                     */
+                    function rank(event) {
+                        const today = moment().startOf('day');
+                        const dayOfMonth = today.format('D');
+                        const weekDay = today.isoWeekday();
+                        const theDaytoday = today.format('YYYYMMDD');
+
+                        if (event["Time Period"] == -1 && event["Due Date"] < theDaytoday) { // stale onceoffs
+                            return 0; // order by theDaytoday
+                        } else if (event["Time Period"] == 2) { //dailys
+                            return 1; //order by alpha
+                        } else if (event["Time Period"] == 0) { // weekly
+                            return 2;  // order by modulo shifted weekDay
+                        } else if (event["Time Period"] == 1) { // monthly
+                            return 2;  // order by modulo shifted dayOfMonth
+                        } else if (event["Time Period"] == -1 && event["Due Date"] >= theDaytoday + 31) {
+                            return 3;  // order by theDaytoday-1
+                        } else
+                            return 2;
+                    }
+
+                    if (rank(event1) < rank(event2)) {
+                        return 1;
+                    } else if (rank(event1) > rank(event2)) {
+                        return -1;
+                    } else {
+                        return event1["Due Date"] < event2["Due Date"] ? 1 :
+                            event1["Due Date"] > event2["Due Date"] ? -1 : 0;
+                        // return event1["Description"].length < event2["Description"].length ? 1 :
+                        //     event1["Description"].length > event2["Description"].length ? -1 :0;
+                    }
+                }
+            });
+        }
+        // *
+        //     Time;
+        //     Period == 2
+        //     * third;
+        // :
+        //     Time;
+        //     Period == 0, 1 && today < Due;
+        //     Date <= today + month
+        //     * last;
+        // :
+        //     Time;
+        //     Period == -1 && Due;
+        //     Date > today + month
+        renderAndRepaint() {
+            app.plannerGrid.store();
+            let openingBalance = OpeningBalance.readAndPersist();
+            let dataSet = app.plannerGrid.updateMovementsDataAndLabels(openingBalance);
+            app.cashFlowChart.refresh(dataSet);
+            app.calendarGrid.refresh(dataSet.calendarData);
         }
 
-        function resolveAmountForDate(date, previousBalance) {
-                let result = previousBalance;
-                let dayOfMonth = date.format('D');
-                let weekDay = date.isoWeekday();
-                let theDaytoday = date.format('YYYYMMDD');
-            let monthAndDay = date.format('MDD');
+        updateMovementsDataAndLabels(openingBalance) {
+            const dateFormat = 'MMMM DD YYYY';
+            const dateWindow = appConfig.timeScaleDays;
+            const today = moment().startOf('day');
+            let data = [];
+            let labels = [];
+            let movementWindow = [];
+            let date = today;
+            do {
+                plotPoint(data, labels, resolveAmountForDate(this.schedule,date, data.length === 0 ? openingBalance : data[data.length - 1].y));
+                date = date.clone().add(1, 'd');
+            } while (data.length < dateWindow) ;
 
-            for (let i = 0; i < schedule.length; i++) {
+            function plotPoint(data, labels, point) {
+                data.push(point);
+                const dateLabel = point.t.format(dateFormat);
+                labels.push(dateLabel);
+            }
+
+            function resolveAmountForDate(schedule ,date, previousBalance) {
+                const dayOfMonth = date.format('D');
+                const weekDay = date.isoWeekday();
+                const theDaytoday = date.format('YYYYMMDD');
+                const monthAndDay = date.format('MDD');
+                let result = previousBalance;
+
+                // const schedule = planner.schedule;
+                for (let i = 0; i < schedule.length; i++) {
                     let event = schedule[i]["Amount"];
                     if (schedule[i]["Time Period"] == 2
                         || schedule[i]["Due Day"] == monthAndDay && schedule[i]["Time Period"] == 3
@@ -284,78 +298,110 @@
                         });
                     }
                 }
-            return {
-                t: date,
-                y: result
-            };
-        }
-        let dataSet = { chartData:data,chartLabels:labels,calendarData:movementWindow};
-        return dataSet;
-    }
-
-    function chartContext() {
-        var ctx = document.getElementById('chart1').getContext('2d');
-        ctx.canvas.width = 1800;
-        ctx.canvas.height = 400;
-        return ctx;
-    }
-
-    function chartConfig(data, labels) {
-        var color = Chart.helpers.color;
-        var cfg = {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Cashflow Planner',
-                    backgroundColor: color(window.chartColors.red).alpha(0.5).rgbString(),
-                    borderColor: window.chartColors.red,
-                    data: data,
-                    type: 'bar',
-                    pointRadius: 0,
-                    fill: false,
-                    lineTension: 0,
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                scales: {
-                    xAxes: [{
-                        type: 'time',
-                        time: {
-                            unit: 'day'
-                        },
-                        distribution: 'series',
-                        ticks: {
-                            source: 'labels'
-                        }
-                    }],
-                    yAxes: [{
-                        scaleLabel: {
-                            display: true,
-                            labelString: 'Balance (€)'
-                        }
-                    }]
-                }
+                return {
+                    t: date,
+                    y: result
+                };
             }
-        };
-        return cfg;
+            return {chartData: data, chartLabels: labels, calendarData: movementWindow};
+        }
+
+        load() {
+            return localStorage.movementString ? JSON.parse(localStorage.movementString) : [];
+        }
+
+        store() {
+            localStorage.movementString = JSON.stringify(this.schedule);
+        }
     }
 
-    function openTab(evt, tabName) {
-        var i, tabcontent, tablinks;
-        tabcontent = document.getElementsByClassName("tabcontent");
-        for (i = 0; i < tabcontent.length; i++) {
-            tabcontent[i].style.display = "none";
+    class CalendarGridProvider {
+        calendarGrid;
+
+        constructor(movementWindow,calendarGridWidth) {
+            this.calendarGrid = $("#calendarGrid");
+            this.calendarGrid.jsGrid({
+                width: calendarGridWidth,
+
+                inserting: false,
+                editing: false,
+                sorting: true,
+                paging: true,
+
+                data: movementWindow,
+
+                fields: [
+                    {name: "Date", type: "number", width: 30},
+                    {name: "Movement", width: 150, type: "text"},
+                    {name: "Amount", type: "number", width: 50},
+                    {name: "Balance", type: "number", width: 50},
+                    {name: "Reschedule", type: "number", width: 30},
+                    {name: "Paid", type: "checkbox", width: 30}
+                ]
+            });
         }
-        tablinks = document.getElementsByClassName("tablinks");
-        for (i = 0; i < tablinks.length; i++) {
-            tablinks[i].className = tablinks[i].className.replace(" active", "");
+
+        refresh(calendarData) {
+            this.calendarGrid.jsGrid("option", "data", calendarData);
         }
-        document.getElementById(tabName).style.display = "block";
-        //evt.currentTarget.className += " active";
     }
 
+    const OpeningBalance = {
+        elementId: 'starting-balance',
+        retrieveAndDisplay : function(){
+            const today = moment().startOf('day');
+            let openingBalance = localStorage.openingBalance ? JSON.parse(localStorage.openingBalance) : {
+                date: today,
+                amount: 0
+            };
+            document.getElementById(this.elementId).value = openingBalance.amount.toString();
+            return openingBalance.amount;
+        },
+        readAndPersist: function () {
+            let openingBalance = Number(document.getElementById(this.elementId).value);
+            const today = moment().startOf('day');
+            localStorage.openingBalance = JSON.stringify({date: today, amount: openingBalance});
+            return openingBalance;
+        }
+    };
+
+    const TabManager = {
+        openTab: function (tabName) {
+            const tabcontent = document.getElementsByClassName("tabcontent");
+            for (let i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+            const tablinks = document.getElementsByClassName("tablinks");
+            for (let i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+            document.getElementById(tabName).style.display = "block";
+        }
+    };
+
+    class CashflowPlannerApp {
+        cashFlowChart;
+        plannerGrid;
+        calendarGrid;
+        appConfig;
+        constructor(appConfig){
+            this.appConfig =appConfig;
+            this.plannerGrid= new PlanningGridProvider($("#planningGrid"),appConfig.planningGridWidth);
+            const openingBalance = OpeningBalance.retrieveAndDisplay();
+            const resultSet = this.plannerGrid.updateMovementsDataAndLabels(openingBalance);
+            this.cashFlowChart = new CashFlowChartProvider(resultSet.chartData, resultSet.chartLabels,{width:appConfig.chartWidth,height:appConfig.chartHeight});
+            this.calendarGrid = new CalendarGridProvider(resultSet.calendarData,appConfig.calendarGridWidth);
+            TabManager.openTab('planningGrid');
+        }
+    }
+    const appConfig = {
+        timeScaleDays:90,
+        chartWidth:1800,
+        chartHeight:400,
+        planningGridWidth:"75%",
+        calendarGridWidth:"40%"
+    };
+    const app = new CashflowPlannerApp(appConfig);
 </script>
 </body>
 
