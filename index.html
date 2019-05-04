@@ -161,7 +161,7 @@
 
         constructor(planningGrid,planningGridWidth) {
             this.planningGrid = planningGrid;
-            this.schedule = this.load();
+            this.load();
             const timePeriod = [
                 {Name: "Once-Off", Id: -1},
                 {Name: "Weekly", Id: 0},
@@ -171,11 +171,10 @@
             ];
             this.planningGrid.jsGrid({
                 width: planningGridWidth,
-
                 inserting: true,
                 editing: true,
-                sorting: true,
-                paging: true,
+                sorting: false,
+                paging: false,
 
                 data: this.schedule,
 
@@ -188,69 +187,47 @@
                 ],
                 onItemInserted: this.renderAndRepaint,
                 onItemUpdated: this.renderAndRepaint,
-                onItemDeleted: this.renderAndRepaint,
-                sorter: function sortAlgo(event1, event2) {
-                    /**
-                     * rank:
-                     * first : staleOnceOff : Time Period == -1 && Due Date < today
-                     * second : dailys : Time Period == 2
-                     * third : monthlys : Time Period == 0,1 && today < Due Date <= today + month
-                     * last : futureOnceOff : Time Period == -1 && Due Date > today + month
-                     *
-                     *
-                     *
-                     *  today 7
-                     */
-                    function rank(event) {
-                        const today = moment().startOf('day');
-                        const dayOfMonth = today.format('D');
-                        const weekDay = today.isoWeekday();
-                        const theDaytoday = today.format('YYYYMMDD');
-
-                        if (event["Time Period"] == -1 && event["Due Date"] < theDaytoday) { // stale onceoffs
-                            return 0; // order by theDaytoday
-                        } else if (event["Time Period"] == 2) { //dailys
-                            return 1; //order by alpha
-                        } else if (event["Time Period"] == 0) { // weekly
-                            return 2;  // order by modulo shifted weekDay
-                        } else if (event["Time Period"] == 1) { // monthly
-                            return 2;  // order by modulo shifted dayOfMonth
-                        } else if (event["Time Period"] == -1 && event["Due Date"] >= theDaytoday + 31) {
-                            return 3;  // order by theDaytoday-1
-                        } else
-                            return 2;
-                    }
-
-                    if (rank(event1) < rank(event2)) {
-                        return 1;
-                    } else if (rank(event1) > rank(event2)) {
-                        return -1;
-                    } else {
-                        return event1["Due Date"] < event2["Due Date"] ? 1 :
-                            event1["Due Date"] > event2["Due Date"] ? -1 : 0;
-                        // return event1["Description"].length < event2["Description"].length ? 1 :
-                        //     event1["Description"].length > event2["Description"].length ? -1 :0;
-                    }
-                }
+                onItemDeleted: this.renderAndRepaint
+                // sorter:this.sortingFunction
             });
         }
-        // *
-        //     Time;
-        //     Period == 2
-        //     * third;
-        // :
-        //     Time;
-        //     Period == 0, 1 && today < Due;
-        //     Date <= today + month
-        //     * last;
-        // :
-        //     Time;
-        //     Period == -1 && Due;
-        //     Date > today + month
+
+        sortingFunction(event1, event2) {
+            function effectiveWindowDate(event){
+                const timePeriod = event["Time Period"];
+                const dueDay = event["Due Day"];
+                const today = moment().startOf('day');
+                const dayOfMonth = today.format('D');
+                const weekDay = today.isoWeekday();
+                const daysInCurrentMonth =30;
+                const currentYear= today.year();
+                const theDayToday = today.format('YYYYMMDD');
+
+                if (timePeriod === -1) {// once-off
+                    return dueDay;
+                } else if (timePeriod === 2) { //daily
+                    return theDayToday;
+                } else if (timePeriod === 0) { // weekly
+                    return today.add((dueDay-weekDay+7)%7,'days').format('YYYYMMDD');
+                } else if (timePeriod === 1) { // monthly
+                    return today.add((dueDay-dayOfMonth+daysInCurrentMonth)%daysInCurrentMonth,'days').format('YYYYMMDD');
+                } else if (timePeriod === 3) { //yearly
+                    const thisYears = moment((dueDay<1000?"0":"")+dueDay,'MMDD');
+                    if(thisYears.diff(today)>=0) {
+                        return thisYears.format('YYYYMMDD');
+                    }else{
+                        return thisYears.add(1,'years').format('YYYYMMDD');
+                    }
+                }
+            }
+            return effectiveWindowDate(event1)-effectiveWindowDate(event2);
+        }
+
         renderAndRepaint() {
             app.plannerGrid.store();
             let openingBalance = OpeningBalance.readAndPersist();
             let dataSet = app.plannerGrid.updateMovementsDataAndLabels(openingBalance);
+            app.plannerGrid.planningGrid.jsGrid('refresh')
             app.cashFlowChart.refresh(dataSet);
             app.calendarGrid.refresh(dataSet.calendarData);
         }
@@ -307,10 +284,12 @@
         }
 
         load() {
-            return localStorage.movementString ? JSON.parse(localStorage.movementString) : [];
+            this.schedule =localStorage.movementString ? JSON.parse(localStorage.movementString) : [];
+            this.schedule.sort(this.sortingFunction);
         }
 
         store() {
+            this.schedule.sort(this.sortingFunction);
             localStorage.movementString = JSON.stringify(this.schedule);
         }
     }
@@ -324,19 +303,19 @@
                 width: calendarGridWidth,
 
                 inserting: false,
-                editing: false,
+                // editing: false,
                 sorting: true,
                 paging: true,
 
                 data: movementWindow,
 
                 fields: [
-                    {name: "Date", type: "number", width: 30},
-                    {name: "Movement", width: 150, type: "text"},
-                    {name: "Amount", type: "number", width: 50},
-                    {name: "Balance", type: "number", width: 50},
-                    {name: "Reschedule", type: "number", width: 30},
-                    {name: "Paid", type: "checkbox", width: 30}
+                    {name: "Date", type: "number", width: 40, editing: false},
+                    {name: "Movement", width: 150, type: "text", editing: false},
+                    {name: "Amount", type: "number", width: 50, editing: false},
+                    {name: "Balance", type: "number", width: 50, editing: false},
+                    {name: "Reschedule", type: "number", width: 40, editing: true},
+                    {name: "Paid", type: "checkbox", width: 30, editing: true}
                 ]
             });
         }
