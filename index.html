@@ -55,6 +55,18 @@
             border-top: none;
         }
 
+        .bg-red td {
+            background-color: #f0f0f0 !important;
+        }
+
+        .bg-green td {
+            background-color: #90ee90 !important;
+        }
+
+        .bg-grey td {
+            background-color: grey !important;
+        }
+
         canvas {
             -moz-user-select: none;
             -webkit-user-select: none;
@@ -104,9 +116,9 @@
                     data: {
                         labels: labels,
                         datasets: [{
-                            label: 'Cashflow Planner',
-                            backgroundColor: color(window.chartColors.red).alpha(0.5).rgbString(),
-                            borderColor: window.chartColors.red,
+                            label: 'Cashflow',
+                            backgroundColor: color(window.chartColors.green).alpha(0.5).rgbString(),
+                            borderColor: window.chartColors.blue,
                             data: data,
                             type: 'bar',
                             pointRadius: 0,
@@ -178,6 +190,18 @@
 
                 data: this.schedule,
 
+                rowClass: function (item, itemIndex) {
+                    const amount = item["Amount"];
+                    const dueDay = item["Due Day"];
+                    const timePeriod = item["Time Period"];
+                    const today = moment().startOf('day');
+                    const dayOfMonth = today.format('D');
+                    const weekDay = today.isoWeekday();
+                    const daysInCurrentMonth = 30;
+                    const theDayToday = today.format('YYYYMMDD');
+                    return (timePeriod === -1 && dueDay < theDayToday) ? 'bg-grey' : (amount > 0) ? 'bg-green' : '';
+                },
+
                 fields: [
                     {name: "Description", type: "text", width: 200, validate: "required"},
                     {name: "Time Period", width: 100, type: "select", items: timePeriod, valueField: "Id", textField: "Name"},
@@ -188,8 +212,12 @@
                 onItemInserted: this.renderAndRepaint,
                 onItemUpdated: this.renderAndRepaint,
                 onItemDeleted: this.renderAndRepaint
-                // sorter:this.sortingFunction
             });
+        }
+
+        refresh() {
+            this.schedule.sort(this.sortingFunction);
+            this.planningGrid.jsGrid("option", "data", this.schedule)
         }
 
         sortingFunction(event1, event2) {
@@ -200,7 +228,6 @@
                 const dayOfMonth = today.format('D');
                 const weekDay = today.isoWeekday();
                 const daysInCurrentMonth =30;
-                const currentYear= today.year();
                 const theDayToday = today.format('YYYYMMDD');
 
                 if (timePeriod === -1) {// once-off
@@ -224,10 +251,10 @@
         }
 
         renderAndRepaint() {
-            app.plannerGrid.store();
             let openingBalance = OpeningBalance.readAndPersist();
             let dataSet = app.plannerGrid.updateMovementsDataAndLabels(openingBalance);
-            app.plannerGrid.planningGrid.jsGrid('refresh')
+            app.plannerGrid.store();
+            app.plannerGrid.refresh();
             app.cashFlowChart.refresh(dataSet);
             app.calendarGrid.refresh(dataSet.calendarData);
         }
@@ -236,49 +263,49 @@
             const dateFormat = 'MMMM DD YYYY';
             const dateWindow = appConfig.timeScaleDays;
             const today = moment().startOf('day');
-            let data = [];
-            let labels = [];
-            let movementWindow = [];
+            const data = [];
+            const labels = [];
+            const movementWindow = [];
             let date = today;
+            let i = 0;
             do {
-                plotPoint(data, labels, resolveAmountForDate(this.schedule,date, data.length === 0 ? openingBalance : data[data.length - 1].y));
-                date = date.clone().add(1, 'd');
-            } while (data.length < dateWindow) ;
-
-            function plotPoint(data, labels, point) {
+                const balance = i === 0 ? openingBalance : data[i - 1].y;
+                const point = {
+                    t: date,
+                    y: resolveAmountForDate(this, date, balance)
+                };
                 data.push(point);
-                const dateLabel = point.t.format(dateFormat);
+                const dateLabel = date.format(dateFormat);
                 labels.push(dateLabel);
-            }
+                date = date.clone().add(1, 'd');
+            } while (i++ < dateWindow);
 
-            function resolveAmountForDate(schedule ,date, previousBalance) {
+            function resolveAmountForDate(theClass, date, previousBalance) {
                 const dayOfMonth = date.format('D');
                 const weekDay = date.isoWeekday();
                 const theDaytoday = date.format('YYYYMMDD');
                 const monthAndDay = date.format('MDD');
                 let result = previousBalance;
 
-                // const schedule = planner.schedule;
-                for (let i = 0; i < schedule.length; i++) {
-                    let event = schedule[i]["Amount"];
-                    if (schedule[i]["Time Period"] == 2
-                        || schedule[i]["Due Day"] == monthAndDay && schedule[i]["Time Period"] == 3
-                        || schedule[i]["Due Day"] == weekDay && schedule[i]["Time Period"] == 0
-                        || schedule[i]["Due Day"] == dayOfMonth && schedule[i]["Time Period"] == 1
-                        || schedule[i]["Due Day"] == theDaytoday && schedule[i]["Time Period"] == -1) {
+                for (let i = 0; i < theClass.schedule.length; i++) {
+                    const event = theClass.schedule[i]["Amount"];
+                    const dueDay = theClass.schedule[i]["Due Day"];
+                    const timePeriod = theClass.schedule[i]["Time Period"];
+                    if (timePeriod === 2
+                        || dueDay.toString() === monthAndDay.toString() && timePeriod === 3
+                        || dueDay.toString() === weekDay.toString() && timePeriod === 0
+                        || dueDay.toString() === dayOfMonth.toString() && timePeriod === 1
+                        || dueDay.toString() === theDaytoday.toString() && timePeriod === -1) {
                         result += event;
                         movementWindow.push({
                             "Date": theDaytoday,
-                            "Movement": schedule[i]["Description"],
-                            "Amount": schedule[i]["Amount"],
+                            "Movement": theClass.schedule[i]["Description"],
+                            "Amount": theClass.schedule[i]["Amount"],
                             "Balance": result
                         });
                     }
                 }
-                return {
-                    t: date,
-                    y: result
-                };
+                return result;
             }
             return {chartData: data, chartLabels: labels, calendarData: movementWindow};
         }
@@ -289,7 +316,6 @@
         }
 
         store() {
-            this.schedule.sort(this.sortingFunction);
             localStorage.movementString = JSON.stringify(this.schedule);
         }
     }
